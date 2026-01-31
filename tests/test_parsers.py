@@ -88,6 +88,36 @@ class TestClaudeCodeParser:
         assert "I'll help you" in result.messages[0].content
         assert "Tool: Read" in result.messages[0].content
 
+    def test_parse_returns_total_lines(self, sample_claude_transcript):
+        """Test that total_lines is returned for incremental logging."""
+        result = parse_claude_code_transcript(sample_claude_transcript)
+
+        # Sample transcript has 4 entries
+        assert result.total_lines == 4
+
+    def test_parse_with_start_line_offset(self, sample_claude_transcript):
+        """Test parsing from a specific line offset."""
+        # Parse full transcript first
+        full_result = parse_claude_code_transcript(sample_claude_transcript)
+        assert len(full_result.messages) == 4
+
+        # Parse starting from line 2 (skip first 2 lines)
+        partial_result = parse_claude_code_transcript(sample_claude_transcript, start_line=2)
+
+        # Should only have the last 2 messages
+        assert len(partial_result.messages) == 2
+        # But total_lines should still reflect the full file
+        assert partial_result.total_lines == 4
+
+    def test_parse_with_offset_beyond_file(self, sample_claude_transcript):
+        """Test parsing with offset beyond file length."""
+        result = parse_claude_code_transcript(sample_claude_transcript, start_line=100)
+
+        # Should return empty result
+        assert len(result.messages) == 0
+        # total_lines should still be the file length
+        assert result.total_lines == 4
+
 
 class TestCodexParser:
     """Tests for Codex CLI history parser."""

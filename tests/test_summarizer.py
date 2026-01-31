@@ -15,6 +15,7 @@ from ai_logger.summarizer import (
     _parse_summary_response,
     _truncate_transcript,
     summarize_transcript,
+    is_session_trivial,
     SummarizationError,
 )
 
@@ -173,3 +174,99 @@ class TestSummarizeTranscript:
             assert "test-laptop" in prompt  # machine name
             assert "/home/user/project" in prompt  # cwd
             assert "claude-code" in prompt  # agent type
+
+
+class TestIsTrivial:
+    """Tests for the haiku triviality check."""
+
+    def test_very_short_transcript_is_trivial(self):
+        """Test that very short transcripts are trivial by definition."""
+        transcript = ParsedTranscript(
+            messages=[TranscriptMessage(role="user", content="hi")],
+            raw_text="User: hi",
+            token_estimate=10,  # Below 100 threshold
+        )
+
+        is_trivial, reason = is_session_trivial(transcript)
+
+        assert is_trivial is True
+        assert "too short" in reason.lower()
+
+    def test_haiku_returns_no_for_trivial(self):
+        """Test that haiku returning NO marks session as trivial."""
+        transcript = ParsedTranscript(
+            messages=[
+                TranscriptMessage(role="user", content="show me the readme"),
+                TranscriptMessage(role="assistant", content="Here is the readme content..."),
+            ],
+            raw_text="User: show me the readme\n\nAssistant: Here is the readme content...",
+            token_estimate=200,
+        )
+
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "NO Just browsed files briefly"
+
+        with patch("ai_logger.summarizer.subprocess.run", return_value=mock_result):
+            is_trivial, reason = is_session_trivial(transcript)
+
+            assert is_trivial is True
+            assert "browsed" in reason.lower()
+
+    def test_haiku_returns_yes_for_nontrivial(self):
+        """Test that haiku returning YES marks session as non-trivial."""
+        transcript = ParsedTranscript(
+            messages=[
+                TranscriptMessage(role="user", content="implement user authentication"),
+                TranscriptMessage(role="assistant", content="I've created the auth module..."),
+            ],
+            raw_text="User: implement user authentication\n\nAssistant: I've created the auth module...",
+            token_estimate=500,
+        )
+
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "YES Implemented authentication feature"
+
+        with patch("ai_logger.summarizer.subprocess.run", return_value=mock_result):
+            is_trivial, reason = is_session_trivial(transcript)
+
+            assert is_trivial is False
+            assert "authentication" in reason.lower()
+
+    def test_haiku_error_assumes_nontrivial(self):
+        """Test that haiku errors default to non-trivial (safe assumption)."""
+        transcript = ParsedTranscript(
+            messages=[TranscriptMessage(role="user", content="do something")],
+            raw_text="User: do something",
+            token_estimate=200,
+        )
+
+        mock_result = MagicMock()
+        mock_result.returncode = 1
+        mock_result.stderr = "rate limit"
+
+        with patch("ai_logger.summarizer.subprocess.run", return_value=mock_result):
+            is_trivial, reason = is_session_trivial(transcript)
+
+            assert is_trivial is False
+            assert "failed" in reason.lower()
+
+    def test_haiku_uses_correct_model(self):
+        """Test that haiku model is specified in the CLI call."""
+        transcript = ParsedTranscript(
+            messages=[TranscriptMessage(role="user", content="test content")],
+            raw_text="User: test content",
+            token_estimate=200,
+        )
+
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "YES Worth logging"
+
+        with patch("ai_logger.summarizer.subprocess.run", return_value=mock_result) as mock_run:
+            is_session_trivial(transcript)
+
+            call_args = mock_run.call_args[0][0]
+            assert "--model" in call_args
+            assert "haiku" in call_args

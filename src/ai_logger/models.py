@@ -78,3 +78,4 @@ class ParsedTranscript(BaseModel):
     messages: list[TranscriptMessage]
     raw_text: str  # For sending to Claude
     token_estimate: int = 0
+    total_lines: int = 0  # Total JSONL lines processed (for incremental logging)

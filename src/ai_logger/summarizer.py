@@ -16,6 +16,20 @@ from .models import (
     SessionSummary,
 )
 
+TRIVIALITY_CHECK_PROMPT = """Is this coding session worth logging? Consider:
+- Just browsing/reading files without changes = NOT worth logging
+- Abandoned/incomplete work with no output = NOT worth logging
+- Very short with no meaningful activity = NOT worth logging
+- Actual code changes, PRs, or substantial work = WORTH logging
+
+<transcript>
+{transcript_content}
+</transcript>
+
+Reply with EXACTLY "YES" or "NO" followed by a 5-word reason.
+Example: "NO Just browsed files briefly" or "YES Implemented new authentication feature"
+"""
+
 SUMMARIZATION_PROMPT = """You are analyzing an AI coding session transcript. Extract a structured summary.
 
 <transcript>
@@ -139,6 +153,57 @@ def summarize_transcript(
         raise SummarizationError(f"Subprocess error: {e}")
 
     return _parse_summary_response(response_text)
+
+
+def is_session_trivial(transcript: ParsedTranscript) -> tuple[bool, str]:
+    """Check if a session is trivial and not worth logging.
+
+    Uses Haiku for a fast, cheap check before running full summarization.
+
+    Args:
+        transcript: Parsed transcript to check
+
+    Returns:
+        Tuple of (is_trivial, reason). If trivial, the session should be skipped.
+    """
+    # Very short transcripts are trivial by definition
+    if transcript.token_estimate < 100:
+        return True, "Session too short"
+
+    content = _truncate_transcript(transcript, max_chars=10000)  # Smaller for haiku
+    prompt = TRIVIALITY_CHECK_PROMPT.format(transcript_content=content)
+
+    try:
+        env = {**os.environ, "AI_LOGGER_RUNNING": "1"}
+
+        result = subprocess.run(
+            ["claude", "-p", prompt, "--model", "haiku", "--output-format", "text"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env=env,
+        )
+
+        if result.returncode != 0:
+            # If haiku check fails, assume non-trivial to be safe
+            return False, "Triviality check failed"
+
+        response = result.stdout.strip().upper()
+
+        # Parse YES/NO response
+        if response.startswith("NO"):
+            reason = result.stdout.strip()[3:].strip() or "Trivial activity"
+            return True, reason
+        elif response.startswith("YES"):
+            reason = result.stdout.strip()[4:].strip() or "Worth logging"
+            return False, reason
+        else:
+            # Unclear response, assume non-trivial
+            return False, "Unclear triviality check"
+
+    except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
+        # On any error, assume non-trivial to be safe
+        return False, "Triviality check error"
 
 
 def _parse_summary_response(response_text: str) -> SessionSummary:

@@ -6,7 +6,9 @@ from pathlib import Path
 from ..models import ParsedTranscript, TranscriptMessage
 
 
-def parse_claude_code_transcript(transcript_path: Path) -> ParsedTranscript:
+def parse_claude_code_transcript(
+    transcript_path: Path, start_line: int = 0
+) -> ParsedTranscript:
     """Parse a Claude Code JSONL transcript file.
 
     Claude Code transcripts are JSONL files where each line contains:
@@ -16,9 +18,12 @@ def parse_claude_code_transcript(transcript_path: Path) -> ParsedTranscript:
 
     Args:
         transcript_path: Path to the .jsonl transcript file
+        start_line: Line number to start parsing from (0-indexed).
+            Used for incremental logging to skip already-processed lines.
 
     Returns:
-        ParsedTranscript with messages and raw text for summarization
+        ParsedTranscript with messages and raw text for summarization.
+        The total_lines field contains the total line count in the file.
 
     Raises:
         FileNotFoundError: If transcript file does not exist
@@ -29,9 +34,16 @@ def parse_claude_code_transcript(transcript_path: Path) -> ParsedTranscript:
 
     messages: list[TranscriptMessage] = []
     raw_parts: list[str] = []
+    total_lines = 0
 
     with open(transcript_path, "r", encoding="utf-8") as f:
-        for line in f:
+        for line_num, line in enumerate(f):
+            total_lines = line_num + 1  # Track total lines in file
+
+            # Skip lines before start_line for incremental parsing
+            if line_num < start_line:
+                continue
+
             line = line.strip()
             if not line:
                 continue
@@ -72,6 +84,7 @@ def parse_claude_code_transcript(transcript_path: Path) -> ParsedTranscript:
         messages=messages,
         raw_text=raw_text,
         token_estimate=token_estimate,
+        total_lines=total_lines,
     )
 
 

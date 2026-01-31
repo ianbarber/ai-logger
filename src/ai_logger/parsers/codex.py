@@ -33,9 +33,12 @@ def parse_codex_history(
 
     messages: list[TranscriptMessage] = []
     raw_parts: list[str] = []
+    total_lines = 0
 
     with open(history_path, "r", encoding="utf-8") as f:
-        for line in f:
+        for line_num, line in enumerate(f):
+            total_lines = line_num + 1
+            line = line.strip()
             line = line.strip()
             if not line:
                 continue
@@ -69,6 +72,7 @@ def parse_codex_history(
         messages=messages,
         raw_text=raw_text,
         token_estimate=token_estimate,
+        total_lines=total_lines,
     )
 
 

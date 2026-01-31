@@ -6,6 +6,7 @@ from typing import Optional
 import click
 
 from .models import AgentSource
+from .pipeline import SessionSkipped
 
 
 @click.group()
@@ -49,6 +50,9 @@ def log(
     try:
         process_session(event)
         click.echo(f"Session {session_id} logged successfully")
+    except SessionSkipped as e:
+        # Session was skipped (no new content or trivial) - this is expected
+        click.echo(f"Session {session_id} skipped: {e}")
     except Exception as e:
         # Queue for retry
         from .queue import enqueue_failed
@@ -69,18 +73,23 @@ def retry(quiet: bool):
         return
 
     success = 0
+    skipped = 0
     failed = 0
     for job_id, event in jobs:
         try:
             process_session(event)
             mark_completed(job_id)
             success += 1
+        except SessionSkipped:
+            # Skipped sessions are marked as completed (not failures)
+            mark_completed(job_id)
+            skipped += 1
         except Exception as e:
             mark_failed(job_id, str(e))
             failed += 1
 
     if not quiet:
-        click.echo(f"Processed: {success} succeeded, {failed} failed")
+        click.echo(f"Processed: {success} succeeded, {skipped} skipped, {failed} failed")
 
 
 @main.command()
