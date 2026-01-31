@@ -15,7 +15,7 @@ from ai_logger.models import (
     SessionSummary,
 )
 from ai_logger.roam import (
-    _format_roam_blocks,
+    _build_batch_actions,
     _get_daily_page_title,
     publish_to_roam,
     RoamError,
@@ -83,25 +83,27 @@ class TestGetDailyPageTitle:
                 assert expected_suffix in result, f"Failed for day {day}"
 
 
-class TestFormatRoamBlocks:
-    """Tests for block formatting."""
+class TestBuildBatchActions:
+    """Tests for batch action building."""
+
+    def _get_child_strings(self, actions):
+        """Extract child block strings from batch actions."""
+        return [a["block"]["string"] for a in actions[1:]]  # Skip parent block
 
     def test_formats_main_block(self, sample_event, sample_summary):
         """Test main block formatting."""
-        blocks = _format_roam_blocks(sample_event, sample_summary)
+        actions = _build_batch_actions(sample_event, sample_summary, "January 31st, 2026")
 
-        assert len(blocks) == 1
-        main_block = blocks[0]["string"]
+        assert len(actions) >= 1
+        main_block = actions[0]["block"]["string"]
 
         assert "test-laptop" in main_block
         assert "[[claude-code]]" in main_block
 
     def test_includes_metadata(self, sample_event, sample_summary):
         """Test that metadata is included as child blocks."""
-        blocks = _format_roam_blocks(sample_event, sample_summary)
-        children = blocks[0]["children"]
-
-        child_strings = [c["string"] for c in children]
+        actions = _build_batch_actions(sample_event, sample_summary, "January 31st, 2026")
+        child_strings = self._get_child_strings(actions)
 
         assert any("project::" in s for s in child_strings)
         assert any("tmux::" in s for s in child_strings)
@@ -109,25 +111,22 @@ class TestFormatRoamBlocks:
 
     def test_includes_summary(self, sample_event, sample_summary):
         """Test that summary is included."""
-        blocks = _format_roam_blocks(sample_event, sample_summary)
-        children = blocks[0]["children"]
-        child_strings = [c["string"] for c in children]
+        actions = _build_batch_actions(sample_event, sample_summary, "January 31st, 2026")
+        child_strings = self._get_child_strings(actions)
 
         assert any("JWT tokens" in s for s in child_strings)
 
     def test_includes_prs(self, sample_event, sample_summary):
         """Test that PRs are formatted correctly."""
-        blocks = _format_roam_blocks(sample_event, sample_summary)
-        children = blocks[0]["children"]
-        child_strings = [c["string"] for c in children]
+        actions = _build_batch_actions(sample_event, sample_summary, "January 31st, 2026")
+        child_strings = self._get_child_strings(actions)
 
         assert any("#PR" in s and "github.com" in s for s in child_strings)
 
     def test_includes_services(self, sample_event, sample_summary):
         """Test that services are formatted correctly."""
-        blocks = _format_roam_blocks(sample_event, sample_summary)
-        children = blocks[0]["children"]
-        child_strings = [c["string"] for c in children]
+        actions = _build_batch_actions(sample_event, sample_summary, "January 31st, 2026")
+        child_strings = self._get_child_strings(actions)
 
         assert any("#service" in s and "api-server" in s for s in child_strings)
 
@@ -142,9 +141,8 @@ class TestFormatRoamBlocks:
             tmux_session="none",
         )
 
-        blocks = _format_roam_blocks(event, sample_summary)
-        children = blocks[0]["children"]
-        child_strings = [c["string"] for c in children]
+        actions = _build_batch_actions(event, sample_summary, "January 31st, 2026")
+        child_strings = self._get_child_strings(actions)
 
         assert not any("tmux::" in s for s in child_strings)
 
